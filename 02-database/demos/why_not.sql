@@ -130,6 +130,32 @@ WITH nb AS (
 INSERT INTO booking_rooms (booking_id, room_id, room_subtotal, room_tax)
 SELECT nb.booking_id, (SELECT min(room_id) FROM rooms WHERE hotel_id = 3), 24000, 4320 FROM nb;
 
+-- @name: why.change_too_late
+-- @title: Why can't I change a booking the day before I arrive?
+-- @topic: Stored procedure (business rule)
+-- @explain: sp_modify_booking only accepts changes up to 2 days before check-in (the same window as the refund policy). Inside the procedure the rule is an IF + RAISE EXCEPTION, so nothing is half-updated.
+CALL sp_modify_booking(
+    (SELECT booking_id FROM bookings WHERE status = 'CONFIRMED' AND check_in = DATE '2026-10-30' LIMIT 1),
+    DATE '2026-11-02', DATE '2026-11-04', 2, 0, NULL, NULL, NULL, NULL);
+
+-- @name: why.change_too_many_guests
+-- @title: Why can't I add guests to a booking beyond what its rooms hold?
+-- @topic: Stored procedure + capacity check
+-- @explain: sp_modify_booking adds up the max_adults / max_children of the rooms the booking already holds and refuses a party that does not fit. (At booking time the same rule is the deferred trigger trg_booking_capacity.)
+CALL sp_modify_booking(
+    (SELECT booking_id FROM bookings WHERE status = 'CONFIRMED' AND check_in > DATE '2026-12-01' ORDER BY booking_id LIMIT 1),
+    (SELECT check_in FROM bookings WHERE status = 'CONFIRMED' AND check_in > DATE '2026-12-01' ORDER BY booking_id LIMIT 1),
+    (SELECT check_out FROM bookings WHERE status = 'CONFIRMED' AND check_in > DATE '2026-12-01' ORDER BY booking_id LIMIT 1),
+    20, 0, NULL, NULL, NULL, NULL);
+
+-- @name: why.change_cancelled
+-- @title: Why can't I change a cancelled booking?
+-- @topic: Stored procedure (state check)
+-- @explain: Only PENDING and CONFIRMED bookings can be changed; a cancelled stay is history.
+CALL sp_modify_booking(
+    (SELECT booking_id FROM bookings WHERE status = 'CANCELLED' AND check_in > DATE '2026-12-01' ORDER BY booking_id LIMIT 1),
+    DATE '2027-01-10', DATE '2027-01-12', 2, 0, NULL, NULL, NULL, NULL);
+
 -- @name: why.analyst_reads_guests
 -- @title: Why can't the analyst read guests' phone numbers?
 -- @topic: DCL · GRANT / REVOKE · security views

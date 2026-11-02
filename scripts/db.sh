@@ -16,6 +16,8 @@ PORT=5433
 DB=yupreserved
 
 export PATH="$PG_BIN:$PATH"
+# Postgres 17 refuses to start from a GUI-launched shell that has no locale set
+export LC_ALL="${LC_ALL:-en_US.UTF-8}"
 
 case "${1:-status}" in
   start)

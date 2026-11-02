@@ -203,8 +203,10 @@ CREATE TRIGGER trg_reviews_guard
 
 
 -- 7 ── keep the derived attributes hotels.avg_rating / review_count correct ─
+-- SECURITY DEFINER: the web app's role may write reviews but never hotels; the trigger keeps the
+-- derived columns correct with the owner's rights, so a guest can post or edit a review.
 CREATE OR REPLACE FUNCTION tg_reviews_rollup() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
     hid integer;
 BEGIN

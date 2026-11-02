@@ -138,7 +138,12 @@ export type BookingSummary = {
   hotel_id: number; hotel_name: string; city_name: string; check_in: string; check_out: string; nights: number;
   adults: number; children: number; rooms: number; subtotal: number; tax: number; total: number; paid: number;
   refunded: number; booked_at: string; property_type?: string; locality?: string; reviewed?: boolean;
+  special_request?: string | null; max_adults?: number; max_children?: number;
+  review_rating?: number | null; review_title?: string | null; review_body?: string | null;
 };
+
+export type BookingChange = { check_in?: string; check_out?: string; adults?: number; children?: number; special_request?: string | null };
+export type ChangeQuote = { old_total: number; new_total: number; difference: number; rooms_free: boolean };
 
 export type SearchParams = {
   city_id?: number; landmark_id?: number; q?: string; mood?: string; check_in?: string; check_out?: string;
@@ -169,7 +174,7 @@ export const api = {
       "/api/auth/otp", { method: "POST", body: JSON.stringify({ phone }) }, "Send OTP"),
   verifyOtp: (phone: string, otp: string) =>
     request<{ guest: Guest | null; is_new: boolean; token: string }>("/api/auth/verify", { method: "POST", body: JSON.stringify({ phone, otp }) }, "Verify OTP"),
-  demoGuests: () => request<{ guest_id: number; first_name: string; last_name: string; phone: string; bookings: number }[]>("/api/guests/demo"),
+  demoGuests: () => request<{ guest_id: number; first_name: string; last_name: string; phone: string; persona: string; bookings: number }[]>("/api/guests/demo"),
   createGuest: (g: Record<string, unknown>) =>
     request<{ guest: Guest; token: string }>("/api/guests", { method: "POST", body: JSON.stringify(g) }, "Create account"),
   book: (b: Record<string, unknown>) =>
@@ -179,6 +184,13 @@ export const api = {
   cancel: (ref: string) => request<{ booking_ref: string; refund_amount: number }>(`/api/bookings/${ref}/cancel`, { method: "POST" }, "Cancel (sp_cancel_booking)"),
   review: (ref: string, r: { rating: number; title: string; body?: string }) =>
     request<{ review_id: number }>(`/api/bookings/${ref}/review`, { method: "POST", body: JSON.stringify(r) }, "Write review"),
+  editReview: (ref: string, r: { rating: number; title: string; body?: string }) =>
+    request<{ review_id: number }>(`/api/bookings/${ref}/review`, { method: "PUT", body: JSON.stringify(r) }, "Edit review"),
+  changeQuote: (ref: string, check_in: string, check_out: string) =>
+    request<ChangeQuote>(`/api/bookings/${ref}/change-quote${qs({ check_in, check_out })}`, undefined, "Price of the change"),
+  changeBooking: (ref: string, c: BookingChange) =>
+    request<{ booking_ref: string; old_total: number; new_total: number; difference: number }>(
+      `/api/bookings/${ref}`, { method: "PATCH", body: JSON.stringify(c) }, "Change trip (sp_modify_booking)"),
 
   lab: {
     overview: () => request<any[]>("/api/lab/overview"),

@@ -201,7 +201,7 @@ SYLLABUS = [
         ["Relational algebra (fundamental + additional operations)", "σ π ρ ∪ − × in basics.*, sets.*, joins.cross; ⋈ ÷ ∩ γ in joins.*, division.*, agg.*"],
         ["Tuple and domain relational calculus", "calculus.trc, calculus.drc, division.not_exists"],
         ["SQL fundamentals", "66 named queries: predicates, CASE, subqueries, CTEs, recursion, window functions"],
-        ["Integrity", "constraints + 16 why-not scenarios"],
+        ["Integrity", "constraints + 19 why-not scenarios"],
         ["Triggers", "8 triggers incl. a deferred constraint trigger (04_triggers.sql)"],
         ["Views", "5 views incl. updatable WITH CHECK OPTION and a materialized view"],
     ]),

@@ -82,6 +82,14 @@ It copies the data, gives the app roles fresh random passwords and prints `YUP_D
 | environment | paste the three printed variables | paste the two database URLs (the secret is generated) |
 | idle | no sleep; cold start ≈ 1–2 s | free plan sleeps; wakes in ≈ 30 s |
 
+## Demo travellers
+
+The last build step loads 26 Indian demo travellers with 110 hand-planned trips (`02-database/seed/demo_trips.sql`):
+business trips on weekdays, family holidays at Diwali and New Year, cancellations with the refund the policy gives,
+two no-shows, three guests staying right now, trips extended or shortened after booking, and unpaid pay-at-hotel
+bookings. The sign-in screen offers them as chips (Priya, Arjun, Ananya, Harpreet, Rohan); the OTP is shown on screen.
+They are listed in `lab.demo_guests`.
+
 ## A 10-minute viva demo
 
 | # | show | how |
@@ -91,8 +99,9 @@ It copies the data, gives the app roles fresh random passwords and prints `YUP_D
 | 3 | Price for two nights | `./yup quote 1 2026-12-24 2026-12-26` or any hotel page → *Price breakdown* |
 | 4 | Search by landmark | website: type *Gateway of India* → results sorted by real distance |
 | 5 | Book a stay | sign in with a demo guest (OTP is shown on screen) → Reserve → Confirm |
+| 5b | Edit a trip | *My trips → Change* (dates, guests, request: price re-quoted, difference charged or refunded) or *Edit review*; CLI `./yup change <ref> --out …` |
 | 6 | The SQL behind it | the floating **SQL · Under the hood** button on every page |
-| 7 | "Why can't I…?" | `./yup why` (16 rules), or *Under the hood → Why can't I…?* |
+| 7 | "Why can't I…?" | `./yup why` (19 rules), or *Under the hood → Why can't I…?* |
 | 8 | Joins, division, calculus | `./yup q joins.full_outer`, `./yup q division.not_exists`, `./yup q calculus.trc` |
 | 9 | Normalisation on real data | `./yup q nf.unf` → `nf.first` → `nf.second` → `nf.third` → `nf.fourth` → `nf.fifth` |
 | 10 | Query processing | `./yup explain plan.external_sort`, `plan.merge_join`, `plan.heuristic_pushdown` |

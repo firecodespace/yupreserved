@@ -33,6 +33,9 @@ SET timezone = 'Asia/Kolkata';
 \echo '▸ lab objects (staging data, normalization, unit-5 demos)'
 \ir lab/lab_objects.sql
 
+\echo '▸ demo trips (26 Indian demo travellers, ~110 trips, lab.demo_guests)'
+\ir seed/demo_trips.sql
+
 \echo '▸ done — row counts:'
 SELECT relname AS table_name, n_live_tup AS rows
 FROM pg_stat_user_tables WHERE schemaname = 'public' ORDER BY relname;

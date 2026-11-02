@@ -1,20 +1,21 @@
-# 02 · Database (PostgreSQL 16, database `yupreserved`, port 5433)
+# 02 · Database (PostgreSQL 16 or 17, database `yupreserved`, port 5433)
 
 ```
 build.sql             rebuild everything:  scripts/db.sh build
 schema/
   01_types.sql        extensions, DOMAINs (rupees, indian_mobile, email_address…), ENUM types
   02_tables.sql       the 15 tables with every key and constraint, named pk_/uq_/fk_/ck_/ex_
-  03_functions.sql    fn_quote_stay, fn_available_rooms, fn_book_stay, sp_cancel_booking …
+  03_functions.sql    fn_quote_stay, fn_available_rooms, fn_book_stay, sp_cancel_booking, sp_modify_booking …
   04_triggers.sql     8 triggers (double booking, status machine, deferred capacity check …)
   05_indexes.sql      FK, composite, partial, GIN full-text, trigram and expression indexes
   06_views.sql        v_hotel_cards, v_booking_summary, v_guest_directory, v_upcoming_arrivals, mv_city_performance
   07_roles.sql        yup_app, yup_analyst, yup_lab — GRANT / REVOKE
 seed/load_data.sql    \copy from 01-dataset/processed, then prices & payments derived in SQL
+seed/demo_trips.sql   26 Indian demo travellers with 110 hand-planned trips (last build step; lab.demo_guests)
 lab/lab_objects.sql   schemas staging + lab: raw data, UNF→5NF, OODB, fragments, media, txn demo
 queries/              66 named queries, each with relational algebra and an explanation
 demos/
-  why_not.sql         16 statements the database must refuse
+  why_not.sql         19 statements the database must refuse
   query_processing.sql 15 EXPLAIN demonstrations (scans, joins, sorts, pipelining, heuristics)
 ```
 

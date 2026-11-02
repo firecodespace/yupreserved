@@ -251,4 +251,58 @@ SESSIONS = [
             "isolation, plan and join demos all work.",
         ],
     },
+    {
+        "number": 5,
+        "date": "2 November 2026",
+        "title": "Demo travellers with 110 natural trips, and editing a trip",
+        "summary": (
+            "The project was set up on a new machine (PostgreSQL 17 from Homebrew, Python venv, npm install) and "
+            "analysed end to end. A hand-planned cast of 26 Indian travellers with 110 trips now loads as the last "
+            "build step, and My trips can change a booking's dates, guests and request, or edit a review."
+        ),
+        "decisions": [
+            ("A curated cast instead of random rows",
+             "The generated dataset has guests with up to 181 stays, so the sign-in chips looked unreal. The new cast "
+             "has regional names and home cities, a usual way of paying, weekday business trips, family holidays at "
+             "Diwali and New Year, six cancellations with the policy refund, two no-shows, three guests staying now, "
+             "trips extended or shortened after booking, two unconfirmed pay-at-hotel bookings and 45 reviews. "
+             "Hotels are chosen from price bands, so the median is about 3,700 rupees a room-night, like the dataset."),
+            ("Trips are bookings; no 16th table",
+             "A trip is a row in bookings (+ booking_rooms, payments, reviews). The demo guests are listed in "
+             "lab.demo_guests, so the 15 core tables stay 15."),
+            ("sp_modify_booking keeps the same rooms",
+             "Changing dates re-prices the same rooms with fn_quote_stay and settles the difference with one extra "
+             "CHARGE or a REFUND, so history is never rewritten. Allowed only for PENDING/CONFIRMED bookings, up to "
+             "2 days before check-in, when the rooms are free (trg_bookings_dates) and the party fits."),
+            ("fn_today(): one platform date",
+             "sp_cancel_booking used the machine's date while the website showed 2026-10-29, so the refund shown "
+             "could differ from the refund given. Both now use fn_today()."),
+            ("Email domain example.in",
+             "Realistic first.last addresses, but at a domain no real person owns."),
+        ],
+        "files": [
+            ("02-database/seed/demo_trips.sql", "26 guests, 110 trips, payments, reviews, lab.demo_guests (generated once from a fixed plan)"),
+            ("02-database/schema/03_functions.sql", "fn_today, fn_change_quote, sp_modify_booking; cancel uses fn_today"),
+            ("02-database/schema/04_triggers.sql, 07_roles.sql", "rating roll-up trigger is SECURITY DEFINER; grant for sp_modify_booking"),
+            ("02-database/build.sql, demos/why_not.sql", "demo seed as last step; 3 new why-not scenarios (19 in all)"),
+            ("03-backend/app/routers/booking_routes.py, errors.py", "PATCH /bookings/{ref}, GET change-quote, PUT review, demo guests from lab.demo_guests"),
+            ("04-cli/yup.py", "yup change <ref> --in --out --adults --children --request"),
+            ("05-frontend/src/pages/Trips.tsx, lib/api.ts, AuthDialog.tsx", "Change form with live price, edit review, request and review shown on the card"),
+            ("scripts/db.sh", "sets LC_ALL so PostgreSQL 17 starts from a GUI-launched shell"),
+        ],
+        "tables": ["bookings", "booking_rooms", "payments", "reviews", "guests (rows only)", "lab.demo_guests (new)"],
+        "concepts": ["Stored procedure with OUT parameters", "Transactions", "Triggers (re-checked on update)",
+                     "SECURITY DEFINER", "Derived data kept by a trigger"],
+        "verified": [
+            "Database rebuilt from scratch in 4 min 15 s with the seed: 15 tables in public, 72,110 bookings, 110 of them demo trips.",
+            "Posting a review failed for the app role (the roll-up trigger updates hotels, which it cannot write): fixed; "
+            "create and edit now move the hotel average (3.0 → 3.1 → 2.9 in the test).",
+            "API as a demo guest after OTP: price of a change, extend (extra charge), shorten (refund), 5 adults refused, "
+            "completed booking refused, check-in too soon refused, no token refused (401), review edit.",
+            "Website: sign in with the demo chip, Change form shows the new total live (+10,087.82 for New Year's night), "
+            "save updates the card, Edit review opens pre-filled. Type-check clean.",
+            "All 19 why-not scenarios are refused; yup change works from the terminal.",
+            "Not done: the hosted Neon/Vercel copy was not touched, so it does not have these changes yet.",
+        ],
+    },
 ]

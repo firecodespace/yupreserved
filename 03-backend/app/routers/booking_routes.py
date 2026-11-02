@@ -45,6 +45,15 @@ class BookingIn(BaseModel):
     special_request: str | None = Field(None, max_length=200)
 
 
+class ChangeIn(BaseModel):
+    """Only the fields that are sent are changed; the rest keep their current value."""
+    check_in: date | None = None
+    check_out: date | None = None
+    adults: int | None = Field(None, ge=1)
+    children: int | None = Field(None, ge=0)
+    special_request: str | None = Field(None, max_length=200)
+
+
 class ReviewIn(BaseModel):
     rating: int = Field(ge=1, le=5)
     title: str = Field(min_length=2, max_length=100)
@@ -135,15 +144,17 @@ def create_guest(body: GuestIn, s: dict = Depends(security.session)):
 
 @router.get("/guests/demo")
 def demo_guests():
-    """A few real guests from the dataset, so the viva demo can sign in quickly.
-    Only available in demo mode (no real SMS provider configured)."""
+    """The hand-made demo travellers (lab.demo_guests, loaded by 02-database/seed/demo_trips.sql),
+    so the viva demo can sign in quickly. Only available in demo mode (no real SMS provider configured)."""
     if not security.OTP_DEMO:
         return {"data": []}
     with transaction(read_only=True) as conn:
         rows = fetch(conn, """
-            SELECT g.guest_id, g.first_name, g.last_name, g.phone, count(b.booking_id) AS bookings
-            FROM guests g JOIN bookings b USING (guest_id)
-            GROUP BY g.guest_id ORDER BY count(b.booking_id) DESC LIMIT 4""")
+            SELECT g.guest_id, g.first_name, g.last_name, g.phone, d.persona, count(b.booking_id) AS bookings
+            FROM lab.demo_guests d
+            JOIN guests g USING (guest_id)
+            LEFT JOIN bookings b USING (guest_id)
+            GROUP BY g.guest_id, d.persona, d.sort_order ORDER BY d.sort_order LIMIT 5""")
     return {"data": rows}
 
 
@@ -170,9 +181,20 @@ def guest_bookings(guest_id: int, s: dict = Depends(security.session)):
     trace = Trace()
     with transaction(read_only=True) as conn:
         rows = fetch(conn, """
-            SELECT v.*, h.property_type, h.locality,
-                   EXISTS (SELECT 1 FROM reviews r WHERE r.booking_id = v.booking_id) AS reviewed
-            FROM v_booking_summary v JOIN hotels h USING (hotel_id)
+            SELECT v.*, h.property_type, h.locality, b.special_request,
+                   rv.review_id IS NOT NULL AS reviewed,
+                   rv.rating AS review_rating, rv.title AS review_title, rv.body AS review_body,
+                   cap.max_adults, cap.max_children
+            FROM v_booking_summary v
+            JOIN hotels h   USING (hotel_id)
+            JOIN bookings b USING (booking_id)
+            LEFT JOIN reviews rv ON rv.booking_id = v.booking_id
+            LEFT JOIN LATERAL (
+                SELECT sum(rt.max_adults) AS max_adults, sum(rt.max_children) AS max_children
+                FROM booking_rooms br
+                JOIN rooms r       ON r.room_id = br.room_id
+                JOIN room_types rt ON rt.room_type_id = r.room_type_id
+                WHERE br.booking_id = v.booking_id) cap ON true
             WHERE v.guest_id = %s
             ORDER BY v.check_in DESC""", (guest_id,), trace)
     return {"data": rows, "trace": trace.steps}
@@ -206,6 +228,62 @@ def cancel_booking(ref: str, s: dict = Depends(security.session)):
         security.require_guest(s, b["guest_id"])
         out = fetch_one(conn, "CALL sp_cancel_booking(%s, NULL)", (b["booking_id"],), trace)
     return {"data": {"booking_ref": ref.upper(), "refund_amount": out["refund_amount"]}, "trace": trace.steps}
+
+
+def _own_booking(conn, ref: str, s: dict, trace: Trace) -> dict:
+    b = fetch_one(conn, """SELECT booking_id, guest_id, status, check_in, check_out, adults, children, special_request
+                           FROM bookings WHERE booking_ref = %s""", (ref.upper(),), trace)
+    if not b:
+        raise HTTPException(404, "booking not found")
+    security.require_guest(s, b["guest_id"])
+    return b
+
+
+@router.get("/bookings/{ref}/change-quote")
+def change_quote(ref: str, check_in: date, check_out: date, s: dict = Depends(security.session)):
+    """What a date change would cost, before the guest saves it (read-only)."""
+    trace = Trace()
+    with transaction(read_only=True) as conn:
+        b = _own_booking(conn, ref, s, trace)
+        q = fetch_one(conn, "SELECT * FROM fn_change_quote(%s, %s, %s)", (b["booking_id"], check_in, check_out), trace)
+    return {"data": q, "trace": trace.steps}
+
+
+@router.patch("/bookings/{ref}")
+def change_booking(ref: str, body: ChangeIn, s: dict = Depends(security.session)):
+    """One call to sp_modify_booking: dates, guests and request change together, the price is
+    re-quoted and the difference is charged or refunded, all in ONE transaction."""
+    trace = Trace()
+    sent = body.model_fields_set
+    with transaction() as conn:
+        b = _own_booking(conn, ref, s, trace)
+        new = {
+            "check_in": body.check_in or b["check_in"],
+            "check_out": body.check_out or b["check_out"],
+            "adults": body.adults if body.adults is not None else b["adults"],
+            "children": body.children if body.children is not None else b["children"],
+            "special_request": (body.special_request or None) if "special_request" in sent else b["special_request"],
+        }
+        out = fetch_one(conn, "CALL sp_modify_booking(%s, %s, %s, %s, %s, %s, NULL, NULL, NULL)",
+                        (b["booking_id"], new["check_in"], new["check_out"], new["adults"], new["children"],
+                         new["special_request"]), trace)
+    return {"data": {"booking_ref": ref.upper(), **out}, "trace": trace.steps}
+
+
+@router.put("/bookings/{ref}/review")
+def edit_review(ref: str, body: ReviewIn, s: dict = Depends(security.session)):
+    """Edit your own review. trg_reviews_rollup recomputes the hotel's average if the rating moved."""
+    guest_id = security.require_guest(s)
+    trace = Trace()
+    with transaction() as conn:
+        row = fetch_one(conn, """
+            UPDATE reviews r SET rating = %s, title = %s, body = %s
+            FROM bookings b
+            WHERE r.booking_id = b.booking_id AND b.booking_ref = %s AND b.guest_id = %s
+            RETURNING r.review_id""", (body.rating, body.title, body.body, ref.upper(), guest_id), trace)
+        if not row:
+            raise HTTPException(404, "review not found")
+    return {"data": row, "trace": trace.steps}
 
 
 @router.post("/bookings/{ref}/review", status_code=201)

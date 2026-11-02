@@ -9,6 +9,16 @@
 --                                              ₹1,001-7,500 → 5%,  > ₹7,500 → 18%
 -- ════════════════════════════════════════════════════════════════════════════
 
+-- The platform's "today". The dataset, the website and the API all live on this simulated
+-- date (see 01-dataset and 05-frontend/src/lib/format.ts), so the refund and change
+-- windows below must use it too instead of the machine's clock.
+CREATE OR REPLACE FUNCTION fn_today()
+RETURNS date
+LANGUAGE sql STABLE AS $$
+    SELECT DATE '2026-10-29';
+$$;
+
+
 -- GST slab for one night's tariff
 CREATE OR REPLACE FUNCTION fn_gst_rate(tariff numeric)
 RETURNS numeric
@@ -253,8 +263,8 @@ BEGIN
       INTO v_paid, v_method
     FROM payments WHERE booking_id = p_booking_id AND status = 'SUCCESS';
 
-    v_pct := CASE WHEN v_b.check_in - current_date >= 7 THEN 1.00
-                  WHEN v_b.check_in - current_date >= 2 THEN 0.50
+    v_pct := CASE WHEN v_b.check_in - fn_today() >= 7 THEN 1.00
+                  WHEN v_b.check_in - fn_today() >= 2 THEN 0.50
                   ELSE 0.00 END;
     refund_amount := round(v_paid * v_pct, 2);
 
@@ -263,6 +273,144 @@ BEGIN
         VALUES (p_booking_id, 'REFUND', v_method, 'SUCCESS', refund_amount,
                 CASE WHEN v_method = 'UPI' THEN 'refund@upi' END,
                 'rfd_' || substr(md5(p_booking_id::text || clock_timestamp()::text), 1, 16));
+    END IF;
+END;
+$$;
+
+
+-- ────────────────────────────────────────────────────────────────────────────
+--  fn_change_quote — what would changing a booking's dates cost?  (read-only)
+--  Used by the website to show "pay ₹x more / get ₹y back" before the guest saves.
+--  Prices are re-quoted per room with fn_quote_stay: base × season × weekend + GST.
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION fn_change_quote(p_booking_id integer, p_check_in date, p_check_out date)
+RETURNS TABLE (old_total numeric, new_total numeric, difference numeric, rooms_free boolean)
+LANGUAGE plpgsql STABLE AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM bookings b WHERE b.booking_id = p_booking_id) THEN
+        RAISE EXCEPTION 'Booking % does not exist', p_booking_id USING ERRCODE = 'P0002';
+    END IF;
+    RETURN QUERY
+    SELECT o.total,
+           n.total,
+           n.total - o.total,
+           (SELECT bool_and(fn_room_is_free(br.room_id, p_check_in, p_check_out, p_booking_id))
+            FROM booking_rooms br WHERE br.booking_id = p_booking_id)
+    FROM (SELECT sum(br.room_subtotal + br.room_tax) AS total
+          FROM booking_rooms br WHERE br.booking_id = p_booking_id) o,
+         (SELECT sum(q.night_total) AS total
+          FROM booking_rooms br
+          JOIN rooms r ON r.room_id = br.room_id
+          CROSS JOIN LATERAL fn_quote_stay(r.room_type_id, p_check_in, p_check_out) q
+          WHERE br.booking_id = p_booking_id) n;
+END;
+$$;
+
+
+-- ────────────────────────────────────────────────────────────────────────────
+--  sp_modify_booking — change dates, guest count or the special request of a
+--  booking that has not started yet, as ONE atomic unit of work.
+--
+--  Rules (every one of them raises an error the website can explain):
+--    • only PENDING or CONFIRMED bookings; changes close 2 days before check-in
+--    • the new check-in must still be in the future
+--    • the SAME rooms are kept, so they must be free on the new dates
+--      (trigger trg_bookings_dates re-checks this) and big enough for the party
+--    • the price is re-quoted for the new dates; the difference is settled with
+--      one extra CHARGE, or a REFUND of the difference when the stay got cheaper
+--      (a PAY_AT_HOTEL booking just gets its pending amount corrected)
+--  History is never rewritten: the original payment row stays as it was.
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE PROCEDURE sp_modify_booking(IN  p_booking_id integer,
+                                   IN  p_check_in   date,
+                                   IN  p_check_out  date,
+                                   IN  p_adults     integer,
+                                   IN  p_children   integer,
+                                   IN  p_request    varchar,
+                                   OUT old_total    numeric,
+                                   OUT new_total    numeric,
+                                   OUT difference   numeric)
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+    v_b      bookings%ROWTYPE;
+    v_cap_a  integer;
+    v_cap_c  integer;
+    v_paid   numeric;
+    v_first  payments%ROWTYPE;
+BEGIN
+    SELECT * INTO v_b FROM bookings WHERE booking_id = p_booking_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Booking % does not exist', p_booking_id USING ERRCODE = 'P0002';
+    END IF;
+    IF v_b.status NOT IN ('PENDING', 'CONFIRMED') THEN
+        RAISE EXCEPTION 'Booking % is % and cannot be changed', v_b.booking_ref, v_b.status
+              USING ERRCODE = 'P0001', HINT = 'Only PENDING or CONFIRMED bookings can be changed.';
+    END IF;
+    IF v_b.check_in - fn_today() < 2 THEN
+        RAISE EXCEPTION 'Booking % can no longer be changed: check-in is in % day(s)', v_b.booking_ref, v_b.check_in - fn_today()
+              USING ERRCODE = 'P0001', HINT = 'Changes close 2 days before check-in.';
+    END IF;
+    IF p_check_in < fn_today() + 2 THEN
+        RAISE EXCEPTION 'The new check-in (%) is too soon', p_check_in
+              USING ERRCODE = 'P0001', HINT = 'Choose a check-in at least 2 days from today.';
+    END IF;
+
+    -- the party must fit in the rooms the booking already holds
+    SELECT sum(rt.max_adults), sum(rt.max_children) INTO v_cap_a, v_cap_c
+    FROM booking_rooms br
+    JOIN rooms r       ON r.room_id = br.room_id
+    JOIN room_types rt ON rt.room_type_id = r.room_type_id
+    WHERE br.booking_id = p_booking_id;
+    IF p_adults > v_cap_a OR p_adults + p_children > v_cap_a + v_cap_c THEN
+        RAISE EXCEPTION 'Booking % has % adults + % children but the rooms hold % adults + % children',
+              v_b.booking_ref, p_adults, p_children, v_cap_a, v_cap_c
+              USING ERRCODE = '23514', HINT = 'Book an extra room as a new booking.';
+    END IF;
+
+    SELECT sum(room_subtotal + room_tax) INTO old_total FROM booking_rooms WHERE booking_id = p_booking_id;
+
+    -- header first: trg_bookings_dates checks that every room is free on the new dates
+    UPDATE bookings
+    SET check_in = p_check_in, check_out = p_check_out,
+        adults = p_adults, children = p_children, special_request = p_request
+    WHERE booking_id = p_booking_id;
+
+    -- re-price each room for the new dates (an agreed price changes only on request)
+    UPDATE booking_rooms br
+    SET room_subtotal = q.subtotal, room_tax = q.tax
+    FROM rooms r
+    CROSS JOIN LATERAL (SELECT sum(x.nightly_rate) AS subtotal, sum(x.gst_amount) AS tax
+                        FROM fn_quote_stay(r.room_type_id, p_check_in, p_check_out) x) q
+    WHERE br.booking_id = p_booking_id AND r.room_id = br.room_id;
+
+    SELECT sum(room_subtotal + room_tax) INTO new_total FROM booking_rooms WHERE booking_id = p_booking_id;
+    difference := new_total - old_total;
+
+    -- settle the difference
+    SELECT * INTO v_first FROM payments
+    WHERE booking_id = p_booking_id AND kind = 'CHARGE' ORDER BY payment_id LIMIT 1;
+
+    IF v_first.payment_id IS NULL THEN
+        NULL;                      -- a PENDING booking has no payment yet: nothing to settle
+    ELSIF v_first.method = 'PAY_AT_HOTEL' AND v_first.status = 'PENDING' THEN
+        UPDATE payments SET amount = new_total WHERE payment_id = v_first.payment_id;
+    ELSIF difference <> 0 THEN
+        SELECT coalesce(sum(amount) FILTER (WHERE kind = 'CHARGE'), 0)
+             - coalesce(sum(amount) FILTER (WHERE kind = 'REFUND'), 0) INTO v_paid
+        FROM payments WHERE booking_id = p_booking_id AND status = 'SUCCESS';
+        -- settle against what was really paid, so an earlier change is never counted twice
+        difference := new_total - v_paid;
+        IF difference > 0 THEN
+            INSERT INTO payments (booking_id, kind, method, status, amount, upi_vpa, card_last4, gateway_ref)
+            VALUES (p_booking_id, 'CHARGE', v_first.method, 'SUCCESS', difference, v_first.upi_vpa, v_first.card_last4,
+                    'pay_' || substr(md5(p_booking_id::text || clock_timestamp()::text), 1, 16));
+        ELSIF difference < 0 THEN
+            INSERT INTO payments (booking_id, kind, method, status, amount, upi_vpa, card_last4, gateway_ref)
+            VALUES (p_booking_id, 'REFUND', v_first.method, 'SUCCESS', -difference, v_first.upi_vpa, v_first.card_last4,
+                    'rfd_' || substr(md5(p_booking_id::text || clock_timestamp()::text), 1, 16));
+        END IF;
     END IF;
 END;
 $$;

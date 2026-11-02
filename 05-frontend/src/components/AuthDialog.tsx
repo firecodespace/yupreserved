@@ -105,10 +105,10 @@ export function AuthDialog() {
             {send.error && <div className="mt-3"><ErrorNote error={send.error} compact /></div>}
             {demo.data?.length ? (
               <div className="mt-6 border-t border-line pt-4">
-                <p className="text-xs text-ink-3">Demo: use a real guest from the dataset</p>
+                <p className="text-xs text-ink-3">Demo travellers: tap one to fill the number</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {demo.data.map((g) => (
-                    <button type="button" key={g.guest_id} onClick={() => setPhone(g.phone)}
+                    <button type="button" key={g.guest_id} onClick={() => setPhone(g.phone)} title={g.persona}
                       className="rounded-full border border-line px-3 py-1 text-xs hover:border-ink">
                       {g.first_name} {g.last_name[0]}. · {g.bookings} trips
                     </button>

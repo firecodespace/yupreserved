@@ -297,7 +297,7 @@ def build() -> Path:
         ["Domain", "named type with a rule", "indian_mobile, email_address, rupees"],
         ["Trigger", "event → condition → action rule inside the DBMS", "8 triggers (04_triggers.sql)"],
         ["View", "stored query, virtual table", "v_hotel_cards, v_booking_summary, v_guest_directory"],
-        ["Transaction (ACID)", "all-or-nothing unit of work", "fn_book_stay, sp_cancel_booking"],
+        ["Transaction (ACID)", "all-or-nothing unit of work", "fn_book_stay, sp_cancel_booking, sp_modify_booking"],
     ], [34, 76, 90]))
 
     # 2 architecture
@@ -434,6 +434,9 @@ def build() -> Path:
         ["fn_available_rooms(hotel, in, out)", "set-returning function", "free rooms per room type"],
         ["fn_book_stay(…)", "function, SECURITY DEFINER", "the whole booking as one transaction with row locks"],
         ["sp_cancel_booking(id, OUT refund)", "PROCEDURE (CALL)", "cancel + refund policy (100% / 50% / 0%)"],
+        ["sp_modify_booking(id, dates, guests, request, OUT …)", "PROCEDURE (CALL)", "change a trip: re-price the same rooms, charge or refund the difference"],
+        ["fn_change_quote(id, in, out)", "function (STABLE)", "what a date change would cost, before it is saved"],
+        ["fn_today()", "function (STABLE)", "the platform's simulated date (2026-10-29) used by the refund and change windows"],
     ], [52, 40, 90]))
     H2("6.3 Views")
     story.append(table(["view", "purpose"], [
@@ -579,6 +582,9 @@ def build() -> Path:
         ["POST", "/api/guests", "INSERT guests (domains, UNIQUE, CHECK age)"],
         ["POST", "/api/bookings", "fn_book_stay (locks, triggers, payment) in one transaction"],
         ["POST", "/api/bookings/{ref}/cancel", "CALL sp_cancel_booking"],
+        ["GET", "/api/bookings/{ref}/change-quote", "fn_change_quote (read-only price of a date change)"],
+        ["PATCH", "/api/bookings/{ref}", "CALL sp_modify_booking (dates, guests, request; difference charged or refunded)"],
+        ["PUT", "/api/bookings/{ref}/review", "UPDATE reviews (trg_reviews_rollup recomputes the hotel's average)"],
         ["POST", "/api/bookings/{ref}/review", "INSERT reviews (trg_reviews_guard, trg_reviews_rollup)"],
         ["GET/POST", "/api/lab/…", "catalog browser, named queries, EXPLAIN, why-not, concurrency"],
     ], [16, 60, 110]))
@@ -589,7 +595,7 @@ def build() -> Path:
 ./yup keys                         primary, candidate and foreign keys
 ./yup queries -t join              list named queries        ./yup q joins.full_outer
 ./yup plans                        ./yup explain plan.external_sort
-./yup why                          run all 16 constraint scenarios   ./yup why why.double_booking
+./yup why                          run all 19 constraint scenarios   ./yup why why.double_booking
 ./yup txn deadlock                 (double_booking_race | isolation_levels | mvcc_versions | atomic_rollback)
 ./yup quote 1 2026-12-24 2026-12-26
 ./yup find "gateway"               ./yup sql "SELECT count(*) FROM bookings"

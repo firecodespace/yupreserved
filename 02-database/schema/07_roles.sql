@@ -36,6 +36,7 @@ GRANT INSERT, UPDATE ON bookings, booking_rooms, payments, reviews, guests TO yu
 GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO yup_app;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO yup_app;
 GRANT EXECUTE ON PROCEDURE sp_cancel_booking(integer) TO yup_app;
+GRANT EXECUTE ON PROCEDURE sp_modify_booking(integer, date, date, integer, integer, varchar) TO yup_app;
 -- the app may never delete bookings or payments: history is kept forever
 REVOKE DELETE ON bookings, payments FROM yup_app;
 

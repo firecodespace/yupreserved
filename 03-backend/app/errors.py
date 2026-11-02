@@ -37,11 +37,14 @@ TRIGGERS = {
     "tg_booking_rooms_guard": "TRIGGER trg_booking_rooms_guard: a room must belong to the booking's hotel and be free for those dates.",
     "tg_bookings_status": "TRIGGER trg_bookings_status: that status change is not allowed.",
     "tg_booking_capacity": "DEFERRED CONSTRAINT TRIGGER trg_booking_capacity: too many guests for the rooms chosen.",
+    "tg_bookings_dates": "TRIGGER trg_bookings_dates: the booked rooms are not free on the new dates.",
     "tg_reviews_guard": "TRIGGER trg_reviews_guard: only completed stays can be reviewed, after check-out.",
     "tg_payments_refund_guard": "TRIGGER trg_payments_refund_guard: refund larger than amount paid.",
     "fn_book_stay": "FUNCTION fn_book_stay: not enough free rooms (rows were locked with SELECT … FOR UPDATE).",
     "fn_quote_stay": "FUNCTION fn_quote_stay: the dates or room type are not valid.",
     "sp_cancel_booking": "PROCEDURE sp_cancel_booking: this booking cannot be cancelled.",
+    "sp_modify_booking": "PROCEDURE sp_modify_booking: this booking cannot be changed that way (status, 2-day cut-off, capacity).",
+    "fn_change_quote": "FUNCTION fn_change_quote: the booking does not exist.",
 }
 
 STATUS = {"23505": 409, "23503": 409, "23514": 422, "23P01": 409, "22023": 422,

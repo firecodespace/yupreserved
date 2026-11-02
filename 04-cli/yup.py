@@ -601,6 +601,36 @@ def cancel(ref: str, yes: bool = typer.Option(False, "--yes")):
 
 
 @app.command()
+def change(ref: str, check_in: Optional[str] = typer.Option(None, "--in"), check_out: Optional[str] = typer.Option(None, "--out"),
+           adults: Optional[int] = typer.Option(None, "--adults"), children: Optional[int] = typer.Option(None, "--children"),
+           request: Optional[str] = typer.Option(None, "--request", help="new special request"),
+           yes: bool = typer.Option(False, "--yes")):
+    """Change dates, guests or the request of an upcoming booking (CALL sp_modify_booking) — shows the price difference first."""
+    _open()
+    cols, rows = _rows("SELECT booking_id, check_in, check_out, adults, children, special_request FROM bookings WHERE booking_ref = %s", (ref.upper(),))
+    if not rows:
+        raise typer.BadParameter("no such booking")
+    bid, ci0, co0, a0, c0, req0 = rows[0]
+    new = (check_in or str(ci0), check_out or str(co0), a0 if adults is None else adults, c0 if children is None else children,
+           req0 if request is None else request)
+    try:
+        _, q = _rows("SELECT old_total, new_total, difference, rooms_free FROM fn_change_quote(%s, %s, %s)", (bid, new[0], new[1]))
+    except psycopg.Error as e:
+        return _db_error(e)
+    old_t, new_t, diff, free = q[0]
+    word = "to pay" if diff > 0 else "back to the guest" if diff < 0 else "(same price)"
+    console.print(f"{ref.upper()}: {ci0} → {co0}  becomes  {new[0]} → {new[1]} · total ₹{old_t:,} → ₹{new_t:,} · ₹{abs(diff):,} {word}"
+                  + ("" if free else "  [red]rooms are not free on those dates[/]"))
+    if not yes and not typer.confirm("Save the change?"):
+        raise typer.Abort()
+    try:
+        _write("CALL sp_modify_booking(%s, %s, %s, %s, %s, %s, NULL, NULL, NULL)", (bid, *new))
+    except psycopg.Error as e:
+        return _db_error(e)
+    console.print("[green]✓ booking updated[/] — ./yup booking " + ref.upper() + " shows the new payments")
+
+
+@app.command()
 def review(ref: str, rating: int = typer.Option(..., "-r", "--rating", min=1, max=5), title: str = typer.Option(..., "-t", "--title"),
            body: Optional[str] = typer.Option(None, "-b", "--body")):
     """Review a completed stay (trigger checks it was completed; rating rolls up into the hotel)."""

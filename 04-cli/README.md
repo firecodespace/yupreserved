@@ -33,6 +33,7 @@ trigger in force.
 | `yup book --phone 9811122233 --room-type 7 --in 2027-01-12 --out 2027-01-14` | book through `fn_book_stay` |
 | `yup booking YRSFGND3` | a booking with its rooms and payments |
 | `yup cancel YRSFGND3` | cancel through `sp_cancel_booking`, shows the refund first |
+| `yup change YRSFGND3 --out 2026-12-30 --adults 3` | change an upcoming trip through `sp_modify_booking`, shows the price difference first |
 | `yup review YRSFGND3 -r 5 -t "Lovely"` | review a completed stay |
 | `yup guest 9811122233` / `yup trips 26001` | a guest and their bookings |
 | `yup stats` | dashboard: totals, top cities, payment mix |
